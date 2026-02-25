@@ -1,0 +1,23 @@
+[
+  {
+    "id": "27e14d9e-199b-4a12-b01a-d2c5b92ef4a1",
+    "name": "Balatro 🃏",
+    "exe_path": "C:\\R\\Balatro.Build.17459173\\Balatro.Build.17459173\\Balatro.exe",
+    "icon_path": "c:\\game_hub\\data\\tmp8c5d5vrt.png",
+    "banner_path": "C:/R/Balatro_capa_digital_Windows.png"
+  },
+  {
+    "id": "6411fddc-fd1c-4dd9-8313-b509f206770d",
+    "name": "9 Kings 👑",
+    "exe_path": "C:/R/9.Kings.Build.21082698/9.Kings.Build.21082698/9Kings.exe",
+    "icon_path": "c:\\game_hub\\data\\tmpc1n15p9i.png",
+    "banner_path": "c:\\game_hub\\data\\tmpd9sezjcc.png"
+  },
+  {
+    "id": "8a08914d-5d60-43e3-9664-a195bcc5cc87",
+    "name": "Notion",
+    "exe_path": "C:\\Users\\Rafael\\AppData\\Local\\Programs\\Notion\\Notion.exe",
+    "icon_path": "c:\\game_hub\\data\\tmpqa8pb284.png",
+    "banner_path": "c:\\game_hub\\data\\tmpcesjyzt0.png"
+  }
+]
