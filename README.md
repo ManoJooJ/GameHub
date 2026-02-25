@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  Um lançador de jogos pessoal, bonito e personalizável, feito em Python com PyQt6.
+  Um Hub/Launcher de jogos pessoal, bonito e personalizável, feito em Python com PyQt6.
 </p>
 
 <p align="center">
