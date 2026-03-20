@@ -1,34 +1,32 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QFileDialog, QColorDialog,
-                              QFrame, QScrollArea, QWidget, QMessageBox)
+                              QFrame, QScrollArea, QWidget, QMessageBox,
+                              QLineEdit)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPixmap, QMovie, QCursor
 from image_cropper import ImageCropper
 from color_extractor import auto_theme_from_image
 import settings_manager, os
 
-def build_style(s):
-    accent  = s['accent_color']
-    bg      = s['bg_color']
-    text    = s['text_color']
-    header  = s['header_color']
-    border  = s['card_border']
 
-    # Versão discreta do accent: mistura com o fundo
+def build_style(s):
+    accent = s['accent_color']
+    bg     = s['bg_color']
+    text   = s['text_color']
+    border = s['card_border']
+
     def subtle(hex_color, factor=0.45):
         hex_color = hex_color.lstrip("#")
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
-        # Interpola entre a cor e um cinza escuro
         r2 = int(r * factor + 40 * (1 - factor))
         g2 = int(g * factor + 40 * (1 - factor))
         b2 = int(b * factor + 40 * (1 - factor))
-        return "#{:02x}{:02x}{:02x}".format(
-            min(255, r2), min(255, g2), min(255, b2))
+        return "#{:02x}{:02x}{:02x}".format(max(255, r2), max(255, g2), max(255, b2))
 
-    btn_bg      = subtle(accent, 0.35)   # bem discreto
-    btn_hover   = subtle(accent, 0.65)   # um pouco mais vivo no hover
+    btn_bg    = subtle(accent, 0.35)
+    btn_hover = subtle(accent, 0.65)
 
     return f"""
     QDialog, QWidget {{ background:{bg}; color:{text}; }}
@@ -39,7 +37,11 @@ def build_style(s):
     }}
     QFrame#divider {{ background:{border}; max-height:1px; }}
     QScrollArea {{ border:none; background:{bg}; }}
-
+    QLineEdit {{
+        background:#1e1e3a; border:1px solid {border};
+        border-radius:6px; padding:6px 10px; color:{text}; font-size:12px;
+    }}
+    QLineEdit:focus {{ border-color:{accent}; }}
     QPushButton {{
         background:{btn_bg};
         color:{text};
@@ -48,14 +50,12 @@ def build_style(s):
         padding:7px 16px;
         font-size:12px;
         font-weight:500;
-        cursor: pointer;
     }}
     QPushButton:hover {{
         background:{btn_hover};
         border-color:{accent};
         color:#ffffff;
     }}
-
     QPushButton#save {{
         background:{accent};
         color:#ffffff;
@@ -104,10 +104,7 @@ class ColorButton(QPushButton):
                 font-size:11px;
                 font-weight:bold;
             }}
-            QPushButton:hover {{
-                border-color:#ffffff;
-                opacity: 0.9;
-            }}
+            QPushButton:hover {{ border-color:#ffffff; }}
         """)
 
     def _is_dark(self):
@@ -127,13 +124,12 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("⚙️  Configurações")
-        self.setFixedSize(520, 580)
+        self.setFixedSize(520, 650)   # altura aumentada para nova seção
         self._s = settings_manager.load_settings()
         self.setStyleSheet(build_style(self._s))
         self._build_ui()
 
     def _make_btn(self, text, slot, object_name=None):
-        """Helper que cria botão já com cursor de mão."""
         btn = QPushButton(text)
         btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn.clicked.connect(slot)
@@ -177,14 +173,12 @@ class SettingsDialog(QDialog):
         bg_btns = QHBoxLayout()
         bg_btns.addWidget(self._bg_preview)
         bg_btns.addSpacing(12)
-
         btn_col = QVBoxLayout()
         btn_col.setSpacing(8)
         btn_col.addWidget(btn_choose)
         btn_col.addWidget(btn_remove)
         btn_col.addWidget(btn_auto)
         btn_col.addStretch()
-
         bg_btns.addLayout(btn_col)
         bg_btns.addStretch()
         layout.addLayout(bg_btns)
@@ -212,6 +206,34 @@ class SettingsDialog(QDialog):
             self._color_btns[key] = btn
             row.addWidget(lbl); row.addWidget(btn); row.addStretch()
             layout.addLayout(row)
+
+        self._divider(layout)
+
+        # ── Integrações ────────────────────────────────────
+        self._section(layout, "🔌  Integrações")
+
+        key_row = QHBoxLayout()
+        lbl_key = QLabel("SteamGridDB API Key:")
+        lbl_key.setFixedWidth(200)
+        self._sgdb_key_input = QLineEdit()
+        self._sgdb_key_input.setPlaceholderText("steamgriddb.com → Preferências → API")
+        self._sgdb_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._sgdb_key_input.setText(self._s.get("sgdb_api_key", ""))
+
+        btn_show_key = QPushButton("👁")
+        btn_show_key.setFixedWidth(34)
+        btn_show_key.setToolTip("Mostrar/ocultar chave")
+        btn_show_key.setCheckable(True)
+        btn_show_key.toggled.connect(
+            lambda checked: self._sgdb_key_input.setEchoMode(
+                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+            )
+        )
+
+        key_row.addWidget(lbl_key)
+        key_row.addWidget(self._sgdb_key_input, 1)
+        key_row.addWidget(btn_show_key)
+        layout.addLayout(key_row)
 
         self._divider(layout)
 
@@ -301,11 +323,13 @@ class SettingsDialog(QDialog):
         for key, btn in self._color_btns.items():
             btn._color = self._s[key]
             btn._update_style()
+        self._sgdb_key_input.setText("")
         self.setStyleSheet(build_style(self._s))
         self._update_bg_preview()
 
     def _save(self):
         for key, btn in self._color_btns.items():
             self._s[key] = btn.color()
+        self._s["sgdb_api_key"] = self._sgdb_key_input.text().strip()
         settings_manager.save_settings(self._s)
         self.accept()

@@ -1,11 +1,15 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                              QPushButton, QScrollArea, QLabel, QGridLayout, QFrame)
+                              QPushButton, QScrollArea, QLabel, QGridLayout,
+                              QFrame, QDialog, QListWidget, QListWidgetItem,
+                              QMessageBox)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap, QPalette, QBrush, QColor, QMovie
+from PyQt6.QtGui import QPixmap, QMovie
 from game_card import GameCard
 from add_game_dialog import AddGameDialog
 from settings_dialog import SettingsDialog
+from steam_scanner import scan_steam_games
 import game_manager, settings_manager, os
+
 
 def build_style(s):
     return f"""
@@ -13,14 +17,16 @@ def build_style(s):
     QMainWindow, QWidget#root, QWidget#container {{ background: transparent; }}
     QFrame#header {{ background:{s['header_color']}; border-bottom:1px solid #252550; }}
     QLabel#title  {{ font-size:22px; font-weight:bold; color:{s['text_color']}; letter-spacing:1px; }}
-    QPushButton#add, QPushButton#cfg {{
+    QPushButton#add, QPushButton#cfg, QPushButton#scan {{
         color:white; border:none; border-radius:8px;
         padding:8px 20px; font-size:13px; font-weight:bold;
     }}
-    QPushButton#add {{ background:{s['accent_color']}; }}
-    QPushButton#add:hover {{ background:{s['accent_color']}dd; }}
-    QPushButton#cfg {{ background:#2d2d5a; padding:8px 14px; }}
-    QPushButton#cfg:hover {{ background:#4444aa; }}
+    QPushButton#add  {{ background:{s['accent_color']}; }}
+    QPushButton#add:hover  {{ background:{s['accent_color']}dd; }}
+    QPushButton#cfg  {{ background:#2d2d5a; padding:8px 14px; }}
+    QPushButton#cfg:hover  {{ background:#4444aa; }}
+    QPushButton#scan {{ background:#14532d; padding:8px 16px; }}
+    QPushButton#scan:hover {{ background:#166534; }}
     QScrollArea {{ border:none; background:transparent; }}
     QLabel#empty {{ color:#444466; font-size:15px; }}
     QScrollBar:vertical {{ background:#161630; width:8px; border-radius:4px; }}
@@ -28,6 +34,82 @@ def build_style(s):
     QScrollBar::handle:vertical:hover {{ background:#6060aa; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
     """
+
+
+class SteamScanDialog(QDialog):
+    """Lista os jogos Steam encontrados para o usuário escolher quais importar."""
+    def __init__(self, games, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("🎮  Jogos Steam Encontrados")
+        self.setMinimumSize(420, 520)
+        self.setStyleSheet("""
+            QDialog   { background:#12122a; color:#fff; }
+            QLabel    { color:#aaa; font-size:13px; }
+            QListWidget {
+                background:#1a1a2e; border:1px solid #333366;
+                border-radius:6px; color:#fff; font-size:13px;
+            }
+            QListWidget::item          { padding:6px 10px; }
+            QListWidget::item:selected { background:#3d3d7a; border-radius:4px; }
+            QPushButton {
+                background:#2d2d5a; color:#fff; border:none;
+                border-radius:6px; padding:7px 18px; font-size:12px;
+            }
+            QPushButton:hover { background:#4444aa; }
+            QPushButton#import_btn {
+                background:#2563eb; font-weight:bold; padding:8px 22px;
+            }
+            QPushButton#import_btn:hover { background:#3b82f6; }
+        """)
+        self.all_games = games
+        self.selected_games = []
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        layout.addWidget(QLabel(
+            f"{len(self.all_games)} jogos instalados encontrados.\n"
+            "Selecione os que deseja importar (Ctrl+A para todos):"
+        ))
+
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(
+            QListWidget.SelectionMode.MultiSelection)
+        for g in self.all_games:
+            item = QListWidgetItem(g["name"])
+            item.setData(Qt.ItemDataRole.UserRole, g)
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget)
+
+        btn_row = QHBoxLayout()
+        btn_all    = QPushButton("Selecionar Todos")
+        btn_all.clicked.connect(self.list_widget.selectAll)
+        btn_none   = QPushButton("Desmarcar Todos")
+        btn_none.clicked.connect(self.list_widget.clearSelection)
+        btn_import = QPushButton("⬇  Importar Selecionados")
+        btn_import.setObjectName("import_btn")
+        btn_import.clicked.connect(self._accept)
+
+        btn_row.addWidget(btn_all)
+        btn_row.addWidget(btn_none)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_import)
+        layout.addLayout(btn_row)
+
+    def _accept(self):
+        self.selected_games = [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self.list_widget.selectedItems()
+        ]
+        if not self.selected_games:
+            QMessageBox.warning(self, "Nenhum selecionado",
+                                "Selecione ao menos um jogo para importar.")
+            return
+        self.accept()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -58,14 +140,28 @@ class MainWindow(QMainWindow):
         # Header
         header = QFrame(); header.setObjectName("header"); header.setFixedHeight(62)
         hbox = QHBoxLayout(header); hbox.setContentsMargins(22, 0, 22, 0)
+
         title = QLabel("🎮 GameHub"); title.setObjectName("title")
-        self.add_btn = QPushButton("+ Adicionar Jogo"); self.add_btn.setObjectName("add")
+
+        self.add_btn = QPushButton("+ Adicionar Jogo")
+        self.add_btn.setObjectName("add")
         self.add_btn.clicked.connect(self._add_game)
-        cfg_btn = QPushButton("⚙️"); cfg_btn.setObjectName("cfg")
+
+        scan_btn = QPushButton("🔍 Steam")
+        scan_btn.setObjectName("scan")
+        scan_btn.setToolTip("Varredura: detectar jogos Steam instalados")
+        scan_btn.clicked.connect(self._scan_steam)
+
+        cfg_btn = QPushButton("⚙️")
+        cfg_btn.setObjectName("cfg")
         cfg_btn.setToolTip("Configurações")
         cfg_btn.clicked.connect(self._open_settings)
-        hbox.addWidget(title); hbox.addStretch()
-        hbox.addWidget(self.add_btn); hbox.addWidget(cfg_btn)
+
+        hbox.addWidget(title)
+        hbox.addStretch()
+        hbox.addWidget(self.add_btn)
+        hbox.addWidget(scan_btn)
+        hbox.addWidget(cfg_btn)
         vbox.addWidget(header)
 
         # Scroll + grid
@@ -77,7 +173,6 @@ class MainWindow(QMainWindow):
         scroll.setWidget(self.container)
         vbox.addWidget(scroll)
 
-        # Empty state
         self.empty = QLabel(
             "Nenhum jogo adicionado.\nClique em '+ Adicionar Jogo' para começar! 🎮")
         self.empty.setObjectName("empty")
@@ -137,14 +232,13 @@ class MainWindow(QMainWindow):
 
         games = game_manager.load_games()
 
-        # Aplica ordem salva
         order = settings_manager.load_settings().get("game_order", [])
         if order:
-            id_map = {g["id"]: g for g in games}
+            id_map  = {g["id"]: g for g in games}
             ordered = [id_map[i] for i in order if i in id_map]
             known   = set(order)
             ordered += [g for g in games if g["id"] not in known]
-            games = ordered
+            games   = ordered
 
         self._game_order = [g["id"] for g in games]
 
@@ -204,6 +298,40 @@ class MainWindow(QMainWindow):
     def _remove_game(self, gid):
         game_manager.remove_game(gid)
         self._refresh()
+
+    def _scan_steam(self):
+        games = scan_steam_games()
+        if not games:
+            QMessageBox.information(
+                self, "Steam",
+                "Nenhum jogo Steam instalado foi encontrado.\n"
+                "Verifique se o Steam está instalado no caminho padrão.")
+            return
+
+        # Filtra jogos já cadastrados pelo launch_cmd
+        existing_exes = {g.get("exe_path") for g in game_manager.load_games()}
+        new_games = [g for g in games if g["launch_cmd"] not in existing_exes]
+
+        if not new_games:
+            QMessageBox.information(
+                self, "Steam",
+                "Todos os jogos Steam já estão cadastrados no GameHub.")
+            return
+
+        dlg = SteamScanDialog(new_games, parent=self)
+        if dlg.exec() and dlg.selected_games:
+            for g in dlg.selected_games:
+                game_manager.add_game(
+                    name        = g["name"],
+                    exe_path    = g["launch_cmd"],
+                    icon_path   = "",
+                    banner_path = "",
+                )
+            QMessageBox.information(
+                self, "Importado!",
+                f"{len(dlg.selected_games)} jogo(s) importado(s) com sucesso!\n"
+                "Você pode adicionar ícone e banner clicando em ✏️ Editar.")
+            self._refresh()
 
     def _open_settings(self):
         dlg = SettingsDialog(self)
